@@ -1,0 +1,48 @@
+trigger:
+- main
+
+variables:
+  awsRegion: 'ap-south-1'
+  ecrRepo: 'dev'
+  imageTag: '$(Build.BuildId)'
+
+stages:
+
+- stage: BuildAndPush
+  displayName: Build and Push to ECR
+  jobs:
+  - job: Build
+    pool:
+      vmImage: 'ubuntu-latest'
+    steps:
+    - task: AWSCLI@1
+      inputs:
+        awsCredentials: 'aws-service-connection'
+        regionName: '$(awsRegion)'
+        command: 'ecr'
+        arguments: 'get-login-password --region $(awsRegion) | docker login --username AWS --password-stdin <aws_account_id>.dkr.ecr.$(awsRegion).amazonaws.com'
+
+    - script: |
+        docker build -t $(ecrRepo):$(imageTag) .
+        docker tag $(ecrRepo):$(imageTag) <aws_account_id>.dkr.ecr.$(awsRegion).amazonaws.com/$(ecrRepo):$(imageTag)
+        docker push <aws_account_id>.dkr.ecr.$(awsRegion).amazonaws.com/$(ecrRepo):$(imageTag)
+      displayName: Build and Push Docker Image
+
+- stage: Deploy
+  displayName: Deploy to ECS
+  dependsOn: BuildAndPush
+  jobs:
+  - job: Deploy
+    pool:
+      vmImage: 'ubuntu-latest'
+    steps:
+    - task: AWSCLI@1
+      inputs:
+        awsCredentials: 'aws-service-connection'
+        regionName: '$(awsRegion)'
+        command: 'ecs'
+        arguments: >
+          update-service --cluster <dev>
+          --service <dev-service-shhym4o8>
+          --force-new-deployment
+      displayName: Deploy to ECS
